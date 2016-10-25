@@ -9,9 +9,6 @@ import sys
 
 pidns = dns.resolver.Resolver()
 pidns.lifetime = 10
-regdns = dns.resolver.Resolver()
-regdns.lifetime = 10
-regdns.nameservers = [ '8.8.8.8', '8.8.4.4' ]
 
 def dns_responds( server, name, rtype='A' ):
     """ This return true if any valid records are returned
@@ -33,11 +30,13 @@ def dns_NXDOMAIN( server, name, rtype='A' ):
         records = server.query( name, rtype )
         if records:
             return False,  "%s: %s != NXDOMAIN == %s"%(rtype, name, records[0])
+        else:
+            return True, "No records for %s"%name
     except dns.resolver.NXDOMAIN:
         return True, "%s: %s == NXDOMAIN"%(rtype, name)
     except dns.exception.DNSException:
         pass
-    return False, "Query failure"
+    return True, "Query failure"
 
 def dns_equals( server, name, match, rtype='A' ):
     ''' Returns true is server replies equals match
@@ -65,7 +64,7 @@ def dns_not_equals( server, name, match, rtype='A' ):
     except dns.exception.DNSException:
         return False, "Query failure"
 
-def test_01_ping(args):
+def opt_test_01_ping(args):
     """Probe existance via ping
 
     """
@@ -78,9 +77,9 @@ def test_01_ping(args):
 
     out, error = ping.communicate()
     if not ping.returncode:
-        return ( True, "" )
+        return True, "" 
     else:
-        return ( False, "Host not pingable" )
+        return False, "Host not pingable"
 
 def test_04_dns_self(args):
     """DNS pi.hole should return own IP
@@ -102,13 +101,13 @@ def test_05_dns_good_site(args):
         return False, "%s: check blacklists"%result
 
 def test_08_dns_localhost(args):
-    """DNS localhost should be NXDOMAIN 
+    """DNS localhost should not return IP (or 127.0.0.1)
     """
     ( good, result ) = dns_NXDOMAIN( pidns, 'localhost.')
     ( good2, result2 ) = dns_equals( pidns, 'localhost.', '127.0.0.1')
     if not good:
         if good2:
-            return True, "WARNING, pi.hole returning 127.0.0.1 for localhost is bad form"
+            return True, "pi.hole returning 127.0.0.1 for localhost"
         else:
             return False, "%s: localhost should be NXDOMAIN"%result
     return True, "NXDOMAIN"
@@ -140,30 +139,48 @@ def test_50_web_blocked(args):
     try:
         r = requests.get("http://%s/1.js"%(args.IP), timeout=5.0)
         if not r.status_code == requests.codes.ok:
-            return ( False, "Get return http status code %i"%r.status_code )
+            return False, "Got return http status code %i"%r.status_code 
         if 'var x = "Pi-hole: A black hole for Internet advertisements."' in r.text:
-            return ( True, r.text.strip())
+            return True, r.text.strip()
+        else:
+            return False, "Wrong answer from server, check lighttpd"
     except:
-        return ( False, "Error/Timeout in http request, make sure web server is operational and not firewalled" )
+        return False, "Error/Timeout in http request, make sure web server is operational and not firewalled"
+
+def test_51_admin_ok(args):
+    """Query admin/js/other/app.min.js and make sure it's reasonable size
+    """
+    try:
+        r = requests.get("http://%s/admin/js/other/app.min.js"%(args.IP), timeout=5.0)
+        if not r.status_code == requests.codes.ok:
+            return ( False, "Got return http status code %i"%r.status_code )
+        if len(r.text)>300:
+            return  True, r.text.splitlines()[0].strip()
+        else:
+            return  False, "Wrong answer from server, check lighttpd" 
+    except:
+        return False, "Error/Timeout in http request, make sure web server is operational and not firewalled"
 
 def test_55_api(args):
     """Test /admin/api.php to make sure it's responding
     """
     try:
-        r = requests.get("http://%s/admin/api.php?summary"%(args.IP), timeout=5.0)
+        r = requests.get("http://%s/admin/api.php?summary"%(args.IP), timeout=5.0, headers={'host':'pi.hole'})
         if not r.status_code == requests.codes.ok:
-            return ( False, "Get return http status code %i"%r.status_code )
+            return False, "Get return http status code %i"%r.status_code 
         if r.json():
-            return ( True, "Ad percentage today=%s"%(r.json()['ads_percentage_today']))
+            return True, "Ad percentage today=%s"%(r.json()['ads_percentage_today'])
+        else:
+            return  False, "Malformed json %s"%r.text 
     except:
-        return ( False, "Error/Timeout/json failure in http request, make sure web server is operational and not firewalled" )
+        return  False, "Error/Timeout/json failure in http request, make sure web server is operational and not firewalled" 
 
 def run_tests(args):
     for name,func in sorted( (name,func) for name, func in globals().items() if 'test_' in name and not args.__dict__[name]):
         test_str = func.__doc__.strip()
         if not args.quiet:
             print("%-80s ... "%test_str, end="", flush=True)
-        (good, out  ) = func(args)
+        (good, out ) = func(args)
         if good and not args.quiet:
             print("PASS %s"%out)
         if not good:
@@ -179,8 +196,12 @@ def main():
     parser.add_argument('-q','--quiet',action='count',help="Run quietly, only output the error on stderr. Add another and it will only return error codes only")
     parser.add_argument('IP', help="IP address to test")
     for name,func in ( (name,func) for name,func in globals().items() if 'test_' in name):
-        alt = "--skip-%s"%(name.split('_', 2)[2].replace('_','-'))
-        parser.add_argument(alt, action='store_true', dest=name, help="Skip: %s"%(func.__doc__.strip()))
+        if 'opt_' in name:
+            alt = "--enable-%s"%(name.split('_', 3)[3].replace('_','-'))
+            parser.add_argument(alt, action='store_false', dest=name, help="Enable: %s"%(func.__doc__.strip()))
+        else:
+            alt = "--skip-%s"%(name.split('_', 2)[2].replace('_','-'))
+            parser.add_argument(alt, action='store_true', dest=name, help="Skip: %s"%(func.__doc__.strip()))
     args = parser.parse_args()
     
     pidns.nameservers = [ args.IP ]
