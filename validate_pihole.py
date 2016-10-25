@@ -13,6 +13,58 @@ regdns = dns.resolver.Resolver()
 regdns.lifetime = 10
 regdns.nameservers = [ '8.8.8.8', '8.8.4.4' ]
 
+def dns_responds( server, name, rtype='A' ):
+    """ This return true if any valid records are returned
+    """
+
+    try:
+        records = server.query( name, rtype )
+        if records:
+            return True, "DNS is Alive"
+    except dns.exception.DNSException:
+        return False, "Query Failed"
+  
+
+def dns_NXDOMAIN( server, name, rtype='A' ):
+    '''Return true if server replies with NXDOMAIN
+    '''
+
+    try:
+        records = server.query( name, rtype )
+        if records:
+            return False,  "%s: %s != NXDOMAIN == %s"%(rtype, name, records[0])
+    except dns.resolver.NXDOMAIN:
+        return True, "%s: %s == NXDOMAIN"%(rtype, name)
+    except dns.exception.DNSException:
+        pass
+    return False, "Query failure"
+
+def dns_equals( server, name, match, rtype='A' ):
+    ''' Returns true is server replies equals match
+    '''
+
+    try:
+        records = server.query( name, rtype )
+        for rec in records:
+            if rec.to_text() == match:
+                return True, "%s: %s == %s"%(rtype, name, match)
+        return False, "%s: %s != %s"%(rtype, name, match)
+    except dns.exception.DNSException:
+        return False, "Query failure"
+
+def dns_not_equals( server, name, match, rtype='A' ):
+    ''' Returns true is server replies does not equals match
+    '''
+
+    try:
+        records = server.query( name, rtype )
+        for rec in records:
+            if rec.to_text() == match:
+                return False, "%s: %s == %s"%(rtype, name, match)
+        return True, "%s: %s != %s"%(rtype, name, match)
+    except dns.exception.DNSException:
+        return False, "Query failure"
+
 def test_01_ping(args):
     """Probe existance via ping
 
@@ -30,34 +82,57 @@ def test_01_ping(args):
     else:
         return ( False, "Host not pingable" )
 
+def test_04_dns_self(args):
+    """DNS pi.hole should return own IP
+    """
+    (good, result) =  dns_equals(pidns, 'pi.hole', args.IP)
+    if good:
+        return True, result
+    else:
+        return False, "%s: Check to see that this is a pi-hole and not firewalled"%result
+
 
 def test_05_dns_good_site(args):
-    """Query for www.google.com, should return IP that is not pihole
+    """DNS for www.google.com, should return IP that is not pihole
     """
-    try:
-        data = pidns.query('www.google.com')
-        if data:
-            return ( True, "www.google.com = %s"%(data[0])  )
-    except dns.resolver.NXDOMAIN:
-        return ( False, "Server doesn't know www.google.com, is this s real DNS?" )
-    except dns.exception.DNSException as e:
-        return ( False, "Query Failed, is DNS running and not firewalled?" )
+    (good, result) =  dns_not_equals(pidns, 'www.google.com', args.IP)
+    if good:
+        return True, result
+    else:
+        return False, "%s: check blacklists"%result
 
+def test_08_dns_localhost(args):
+    """DNS localhost should be NXDOMAIN 
+    """
+    ( good, result ) = dns_NXDOMAIN( pidns, 'localhost.')
+    ( good2, result2 ) = dns_equals( pidns, 'localhost.', '127.0.0.1')
+    if not good:
+        if good2:
+            return True, "WARNING, pi.hole returning 127.0.0.1 for localhost is bad form"
+        else:
+            return False, "%s: localhost should be NXDOMAIN"%result
+    return True, "NXDOMAIN"
+
+def test_09_dns_localhost_localdomain(args):
+    '''DNS localhost.localdomain should be NXDOMAIN
+    '''
+    ( good, result ) = dns_NXDOMAIN( pidns, 'localhost.localdomain.')
+    if not good:
+        return False, "%s: should whitelist"%result
+    return True, "NXDOMAIN"
 
 def test_10_dns_bad_site(args):
-    """Query to see if www.doubleclick.net returns pihole ip
+    """DNS query for known ad sites
     """
-
-    try:
-        data = pidns.query('www.doubleclick.net.')
-        if data and data[0].to_text() == args.IP:
-            return ( True, "%s == %s"%(data[0],args.IP)  )
-        else:
-            return ( False, "%s != %s"%(data[0],args.IP)  )
-    except dns.resolver.NXDOMAIN:
-        return ( False, "Server doesn't know pihole. Its' likely that this is a DNS server but not a pihole" )
-    except dns.exception.DNSException as e:
-        return ( False, "Query Failed, is DNS running and not firewalled?" )
+    sites = [
+        'www.doubleclick.net',
+        'www.googleadservices.com',
+        ]
+    for site in sites:
+        ( good, result ) = dns_equals( pidns, site, args.IP )
+        if not good:
+            return False, "%s: Are blacklists setup?"%result
+    return True, "Returning pi.hole IP"
 
 def test_50_web_blocked(args):
     """Query a random js from site to see that it's return the static file
@@ -67,7 +142,7 @@ def test_50_web_blocked(args):
         if not r.status_code == requests.codes.ok:
             return ( False, "Get return http status code %i"%r.status_code )
         if 'var x = "Pi-hole: A black hole for Internet advertisements."' in r.text:
-            return ( True, "")
+            return ( True, r.text.strip())
     except:
         return ( False, "Error/Timeout in http request, make sure web server is operational and not firewalled" )
 
@@ -87,7 +162,7 @@ def run_tests(args):
     for name,func in sorted( (name,func) for name, func in globals().items() if 'test_' in name and not args.__dict__[name]):
         test_str = func.__doc__.strip()
         if not args.quiet:
-            print("%-50s ... "%test_str, end="", flush=True)
+            print("%-80s ... "%test_str, end="", flush=True)
         (good, out  ) = func(args)
         if good and not args.quiet:
             print("PASS %s"%out)
