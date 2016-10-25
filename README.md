@@ -59,8 +59,6 @@ optional arguments:
 Example run against a functional pihole
 
 ```
-
-```
 bash$ ./validate_pihole.py 10.195.42.239 
 Probe existance via ping                           ... PASS 
 Query for www.google.com, should return IP that is not pihole ... PASS www.google.com = 216.58.219.228
@@ -70,6 +68,7 @@ Test /admin/api.php to make sure it's responding   ... PASS Ad percentage today=
 All tests pass on 10.195.42.239
 bash$ echo $?
 0
+```
 
 Example against centos 6 with broken php
 
