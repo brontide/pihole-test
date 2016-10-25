@@ -6,6 +6,13 @@ Python3 validation testing of pi-hole installtion for
 eventual CI.  Script will take an IP and return 0
 for pass and -1 for failure.
 
+**Requirements**
+
+- dnspython3
+- requests
+
+`pip3 install [--user] dnspython3 requests`
+
 ## Tests
 
 Planned tests include
