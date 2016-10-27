@@ -245,7 +245,7 @@ def m0_test_web_blocked(IP=None, **kwargs):
     Query a random js from site to see that it's return the static file
     """
     try:
-        r = requests.get("http://%s/1.js"%(IP), timeout=5.0)
+        r = requests.get("http://%s/1.js"%(IP), timeout=1.0)
         if not r.status_code == requests.codes.ok:
             return False, "Got return http status code %i"%r.status_code 
         if 'var x = "Pi-hole: A black hole for Internet advertisements."' in r.text:
@@ -260,7 +260,7 @@ def m1_test_admin_ok(IP=None, **kwargs):
     Query admin/js/other/app.min.js and make sure it's reasonable size
     """
     try:
-        r = requests.get("http://%s/admin/js/other/app.min.js"%(IP), timeout=5.0)
+        r = requests.get("http://%s/admin/js/other/app.min.js"%(IP), timeout=4.0)
         if not r.status_code == requests.codes.ok:
             return ( False, "Got return http status code %i"%r.status_code )
         if len(r.text)>300:
@@ -275,13 +275,14 @@ def m5_test_api(IP=None, **kwargs):
     Test /admin/api.php to make sure it's responding
     """
     try:
-        r = requests.get("http://%s/admin/api.php?summary"%(IP), timeout=2.0, headers={'host':'pi.hole'})
-        if not r.status_code == requests.codes.ok:
-            return False, "Get return http status code %i"%r.status_code 
-        if r.json():
-            return True, "Ad percentage today=%s"%(r.json()['ads_percentage_today'])
-        else:
-            return  False, "Malformed json %s"%r.text 
+        with Timer() as t:
+            r = requests.get("http://%s/admin/api.php?summary"%(IP), timeout=2.0, headers={'host':'pi.hole'})
+            if not r.status_code == requests.codes.ok:
+                return False, "Get return http status code %i"%r.status_code 
+            if r.json():
+                return True, "Ad percentage today={} in {:.2f}ms".format(r.json()['ads_percentage_today'],t.elapsed*1000)
+            else:
+                return  False, "Malformed json %s"%r.text 
     except:
         return  False, "Error/Timeout/json failure in http request, make sure web server is operational and not firewalled" 
 
@@ -290,13 +291,14 @@ def m6_test_api_data(IP=None, **kwargs):
     Test data dump to make sure it's responding quickly
     """
     try:
-        r = requests.get("http://%s/admin/api.php?getAllQueries"%(IP), timeout=5.0, headers={'host':'pi.hole'})
-        if not r.status_code == requests.codes.ok:
-            return False, "Get return http status code %i"%r.status_code 
-        if r.json():
-            return True, "Got %i queries"%len(r.json()['data'])
-        else:
-            return  False, "Malformed json %s"%r.text 
+        with Timer() as t:
+            r = requests.get("http://%s/admin/api.php?getAllQueries"%(IP), timeout=4.0, headers={'host':'pi.hole'})
+            if not r.status_code == requests.codes.ok:
+                return False, "Get return http status code %i"%r.status_code 
+            if r.json():
+                return True, "Got {} queries in {:.2f}ms".format(len(r.json()['data']), t.elapsed*1000)
+            else:
+                return  False, "Malformed json %s"%r.text 
     except:
         return  False, "Error/Timeout/json failure in http request, make sure web server is operational and not firewalled" 
 

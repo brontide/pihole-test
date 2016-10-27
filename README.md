@@ -29,6 +29,7 @@ Planned tests include
   based redult~~
 - admin?
 - ssh based test of whitelisting/blacklisting?
+- v6 ( over v6 and v6 blocking )
 
 
 ## Running
