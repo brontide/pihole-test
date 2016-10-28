@@ -238,7 +238,7 @@ def h0_opt_test_stresstest(IP=None, stress_count=2000, stress_threads=50, **kwar
     vavg = sum(numbers)*1000//len(numbers)
     vstd = (sum(((n*1000) - vavg) ** 2 for n in numbers) / len(numbers)) ** .5
 
-    return (good/bad)>0.05, "{good}/{bad} min {vmin:.2f}ms avg {vavg:.2f}ms max {vmax:.2f}ms std {vstd:.2f}ms".format(**locals())
+    return not bad or (good/bad)>0.05, "{good}/{bad} min {vmin:.2f}ms avg {vavg:.2f}ms max {vmax:.2f}ms std {vstd:.2f}ms".format(**locals())
 
 def m0_test_web_blocked(IP=None, **kwargs):
     """
